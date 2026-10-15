@@ -1,22 +1,6 @@
-# Virtual environment
+__pycache__/
+*.pyc
 venv/
 .venv/
-env/
-
-# Python cache
-__pycache__/
-*.py[cod]
-
-# Environment variables
-.env
-
-# Streamlit
-.streamlit/secrets.toml
-
-# IDE
-.vscode/
-.idea/
-
-# OS files
+*.tmp
 .DS_Store
-Thumbs.db
