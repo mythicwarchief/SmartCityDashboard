@@ -1,310 +1,179 @@
 # Smart City Dashboard
 
-A Python-based data analytics dashboard designed to monitor and analyze key aspects of urban life, including **air quality, traffic, water consumption, and energy usage**.
+A Streamlit-based urban data analytics web application that monitors **air quality, traffic, water consumption and energy usage** for four Kerala cities: Kochi, Trivandrum, Kozhikode and Thrissur.
 
-The project uses **NumPy, Pandas, and Streamlit** to transform raw city datasets into interactive visualizations and meaningful insights that support data-driven understanding of sustainable urban development.
+Each domain is stored in its own CSV file and managed on its own page, where users can **add, view, edit and delete records** and see **charts and generated insights** that update from the current CSV state.
 
----
-
-##  Project Overview
-
-Modern cities generate large amounts of data across transportation, environmental conditions, utilities, and resource consumption. However, raw data alone can be difficult to interpret.
-
-The **Smart City Dashboard** brings these datasets together into a single interactive application. Users can explore city-level trends, compare different areas, analyze resource consumption, and identify potential urban challenges through statistical analysis and visualizations.
-
-The project is primarily aligned with **UN Sustainable Development Goal 11: Sustainable Cities and Communities**, with supporting connections to SDGs related to health, clean water, clean energy, responsible consumption, and climate action.
+**Course:** 22AIE205 Introduction to Python (Semester 3, B.Tech CSE-AI), Amrita Vishwa Vidyapeetham
+**Project:** Term Project, Data Analytics Web Application Development
+**Team:** B14 (four members, four datasets)
+**Primary SDG:** SDG 11 - Sustainable Cities and Communities
 
 ---
 
-##  Objectives
+## Who owns what
 
-* Analyze real-world urban datasets using Python.
-* Demonstrate practical use of **NumPy and Pandas** for data analysis.
-* Build an interactive dashboard using **Streamlit**.
-* Visualize important urban trends and comparisons.
-* Extract meaningful insights from raw datasets.
-* Combine multiple aspects of city management into one dashboard.
-* Demonstrate practical Python programming and data-handling skills.
+| Member | Domain | Page | Manager class | CSV |
+| --- | --- | --- | --- | --- |
+| **Vaishnav Sunil Nair** | Air Quality | `pages/1_Air_Quality.py` | `modules/air_quality.py` | `data/air_quality.csv` |
+| **Shreyas Nair** | Traffic | `pages/2_Traffic.py` | `modules/traffic.py` | `data/traffic.csv` |
+| **Adithyadev B** | Water | `pages/3_Water.py` | `modules/water.py` | `data/water.csv` |
+| **Kiran S Nair** | Energy | `pages/4_Energy.py` | `modules/energy.py` | `data/energy.csv` |
 
----
+Shared by the whole team: `utils/common.py` (`CSVManager` base class), `app.py` (landing page), `requirements.txt`, this README.
 
-##  Key Modules
-
-###  Air Quality
-
-Analyzes environmental conditions using parameters such as:
-
-* AQI
-* PM2.5
-* PM10
-* NO₂
-* SO₂
-* CO
-
-**Possible analysis:**
-
-* Average AQI by city
-* Monthly pollution trends
-* City-wise pollution comparison
-* AQI category distribution
-* Highest pollution levels
+Each page reads and writes **only its own CSV**. The Overview page is read-only.
 
 ---
 
-###  Traffic
+## Features
 
-Analyzes urban transportation patterns using data such as:
+Every dataset page has the same layout: title, sidebar filters (city, date range), summary metrics, then tabs.
 
-* Vehicle count
-* Average speed
-* Road
-* Time
-* Congestion level
+| Tab | What the user can do |
+| --- | --- |
+| View Data | Search, filter and sort records; see summary statistics and the NaN-handling note |
+| Add Record | Fill a validated form; duplicate IDs are rejected; the row is appended to the CSV |
+| Edit Record | Pick a record by ID, change its fields, save back to the CSV |
+| Delete Record | Pick a record, review it, confirm with "Yes, delete" before it is removed |
+| Charts and Insights | Charts and text insights rebuilt from the current CSV and filters |
+| Report | Download a summary report (.txt) and the filtered data (.csv) with timestamp, row count and applied filters |
 
-**Possible analysis:**
+### Robustness
 
-* Peak traffic hours
-* Traffic volume by city
-* Average vehicle speed
-* Congestion comparison
-* Weekday vs weekend traffic
+- Every CSV read and write uses `try / except / else / finally`.
+- **Safe writes:** data is written to a temporary file in the same folder and swapped in with `os.replace()`, so a crash cannot leave a half-written CSV.
+- Handled explicitly: missing file (offers to create an empty CSV with headers), empty file, wrong column types, invalid record ID (update/delete) and duplicate ID (create).
+- Users see friendly on-page messages, never a raw traceback.
+- **Missing values (NaN):** rows with missing values are flagged and counted; statistics and charts exclude NaN values (nothing is imputed). This is stated on each page.
 
----
+### OOP design
 
-###  Water
-
-Analyzes urban water consumption and availability using:
-
-* Water consumption
-* Water supply
-* Population
-* Water quality indicators
-
-**Possible analysis:**
-
-* Daily/monthly water consumption
-* Per-capita consumption
-* Supply vs demand
-* City-wise comparison
-* Water quality trends
+- `CSVManager` (`utils/common.py`) is the shared base class. It keeps the DataFrame in a protected `_data` attribute exposed through a `@property` (**encapsulation**), and provides `load()`, an atomic save, and generic create / read / update / delete methods that return values (a success flag and message, or a DataFrame).
+- `AirQualityManager`, `TrafficManager`, `WaterManager` and `EnergyManager` each **extend** `CSVManager` (**inheritance**) and add dataset-specific validation, derived columns and analysis methods.
 
 ---
 
-###  Energy
+## Air Quality module (Vaishnav Sunil Nair)
 
-Analyzes urban energy usage using:
+**Files:** `pages/1_Air_Quality.py`, `modules/air_quality.py`, `data/air_quality.csv`, `scripts/generate_air_quality.py`
 
-* Electricity consumption
-* Renewable energy
-* Non-renewable energy
-* Peak demand
+**Columns:** `record_id, date, city, aqi, pm25, pm10, no2, so2, co, aqi_category`
 
-**Possible analysis:**
+`aqi_category` is derived from `aqi` using the CPCB scale (Good, Satisfactory, Moderate, Poor, Very Poor, Severe), not typed by the user.
 
-* Energy consumption trends
-* Peak demand
-* Renewable energy percentage
-* City-wise energy comparison
-* Renewable vs non-renewable usage
+**Validation:** date must parse; city must be one of the four; AQI 0-500; pollutant values within sensible ranges; record ID a positive whole number and unique.
+
+**Summary statistics (computed with Pandas / NumPy):**
+
+1. Mean AQI by city (group-by)
+2. Maximum PM2.5 with its city and date
+3. Count of readings per AQI category
+4. AQI mean, median, standard deviation, 95th percentile and maximum (NumPy)
+
+**Charts:** line (monthly AQI trend by city, or a daily line for ranges shorter than three months), bar (average AQI by city), pie (AQI category share), histogram (PM2.5 distribution).
+
+**Example generated insight:** "Kozhikode recorded the highest average AQI in the selected period."
+
+### About the air quality data
+
+The dataset is a **modelled dataset**, not raw data downloaded from CPCB. It contains 1,464 daily readings (4 cities x 366 days of 2024) generated by `scripts/generate_air_quality.py` using seasonal patterns typical of Kerala (cleaner monsoon, more polluted winter) and the official CPCB breakpoints for PM2.5 and PM10 (AQI is the higher of the two sub-indices). About 1.5% of PM10, NO2, SO2 and CO readings are left blank on purpose, to demonstrate NaN handling. The random seed is fixed, so running the script recreates the same data (this overwrites any changes made through the app).
+
+> The other three datasets are documented by their owners: see the notes for Traffic, Water and Energy below.
 
 ---
 
-##  Dashboard Structure
+## Other modules
+
+> Owners: please complete the details for your own module (data source, statistics, charts) before submission.
+
+| Module | Planned columns | Typical analysis |
+| --- | --- | --- |
+| Traffic (Shreyas Nair) | `record_id, date, hour, city, road, vehicle_count, avg_speed_kmph, congestion_level, day_type` | Peak traffic hours, volume by city, average speed, congestion, weekday vs weekend |
+| Water (Adithyadev B) | `record_id, date, city, population, supply_ml, consumption_ml, quality_index` | Monthly consumption, per-capita use, supply vs demand, quality trend |
+| Energy (Kiran S Nair) | `record_id, date, city, consumption_mwh, renewable_mwh, non_renewable_mwh, peak_demand_mw` | Consumption trend, peak demand, renewable percentage, renewable vs non-renewable |
+
+---
+
+## Dashboard structure
 
 ```text
 Smart City Dashboard
-│
-├── Overview
-│   └── Combined city insights
-│
-├── Air Quality
-│   └── Pollution analysis
-│
-├── Traffic
-│   └── Transportation analysis
-│
-├── Water
-│   └── Water resource analysis
-│
-├── Energy
-│   └── Energy consumption analysis
-│
-└── Reports
-    └── Data tables and summaries
+|
+|-- Overview (app.py)        Theme, KPI cards, combined insights, links (read-only)
+|-- Air Quality              CRUD + analysis for air_quality.csv
+|-- Traffic                  CRUD + analysis for traffic.csv
+|-- Water                    CRUD + analysis for water.csv
+`-- Energy                   CRUD + analysis for energy.csv
 ```
 
----
-
-## Technology Stack
-
-| Technology       | Purpose                                              |
-| ---------------- | ---------------------------------------------------- |
-| **Python**       | Core programming language                            |
-| **NumPy**        | Numerical and statistical calculations               |
-| **Pandas**       | Data loading, cleaning, transformation, and analysis |
-| **Streamlit**    | Interactive web dashboard                            |
-| **CSV**          | Dataset storage                                      |
-| **Git & GitHub** | Version control and collaboration                    |
+Each domain page includes its own View, Add, Edit, Delete, Charts and Report tabs.
 
 ---
 
-## Project Structure
+## Technology stack
+
+| Technology | Purpose |
+| --- | --- |
+| **Python 3.10+** | Core language |
+| **Streamlit** (multi-page app) | Interactive web dashboard |
+| **Pandas** | Loading, cleaning, grouping and analysis |
+| **NumPy** | Numerical and statistical calculations |
+| **Plotly** | Dynamic charts |
+| **CSV** | Persistent storage in `/data` |
+| **Git and GitHub** | Version control and submission |
+
+---
+
+## Project structure
 
 ```text
 SmartCityDashboard/
-│
-├── app.py
-├── README.md
-├── requirements.txt
-├── .gitignore
-│
-├── data/
-│   ├── air_quality.csv
-│   ├── traffic.csv
-│   ├── water.csv
-│   └── energy.csv
-│
-├── modules/
-│   ├── air_quality.py
-│   ├── traffic.py
-│   ├── water.py
-│   └── energy.py
-│
-└── utils/
-    └── common.py
+|-- app.py                     landing page / Overview (entry point)
+|-- README.md
+|-- requirements.txt
+|-- .gitignore
+|
+|-- pages/
+|   |-- 1_Air_Quality.py       Vaishnav
+|   |-- 2_Traffic.py           Shreyas
+|   |-- 3_Water.py             Adithyadev
+|   `-- 4_Energy.py            Kiran
+|
+|-- data/
+|   |-- air_quality.csv
+|   |-- traffic.csv
+|   |-- water.csv
+|   `-- energy.csv
+|
+|-- modules/                   one manager class per dataset
+|   |-- __init__.py
+|   |-- air_quality.py
+|   |-- traffic.py
+|   |-- water.py
+|   `-- energy.py
+|
+|-- utils/
+|   |-- __init__.py
+|   `-- common.py              shared CSVManager base class
+|
+`-- scripts/
+    `-- generate_air_quality.py   regenerates data/air_quality.csv
 ```
 
----
-
-## Team Contribution
-
-The project follows a **four-member, four-dataset structure**, where each member is responsible for one urban domain.
-
-| Member                  | Responsibility       | Dataset     |
-| ----------------------- | -------------------- | ----------- |
-| **Vaishnav Sunil Nair** | Air Quality Analysis | Air Quality |
-| **Shreyas Nair**        | Traffic Analysis     | Traffic     |
-| **Adithyadev B**        | Water Analysis       | Water       |
-| **Kiran S Nair**        | Energy Analysis      | Energy      |
-
-### Individual Responsibilities
-
-Each member is expected to:
-
-1. Obtain and understand their dataset.
-2. Clean and prepare the data using Pandas.
-3. Perform numerical and statistical analysis using Pandas and NumPy.
-4. Create meaningful visualizations.
-5. Implement their Streamlit dashboard section.
-6. Identify useful insights from the analysis.
-7. Integrate their module into the main application.
-
-The final dashboard combines all four modules into a unified **Smart City Analytics Platform**.
+All paths are relative to the project root; nothing is hardcoded to a local machine.
 
 ---
 
-## Python Concepts Demonstrated
+## Installation and setup
 
-The project demonstrates practical application of:
-
-* Variables and data types
-* Conditional statements
-* Loops
-* Functions
-* Lists and dictionaries
-* Modules
-* Exception handling
-* File handling
-* CSV processing
-* NumPy arrays and calculations
-* Pandas DataFrames
-* Data filtering
-* Data grouping and aggregation
-* Data cleaning
-* Statistical analysis
-* Streamlit components
-
----
-
-##  Data Analysis Workflow
-
-```text
-Raw Dataset
-     ↓
-Data Loading
-     ↓
-Data Cleaning
-     ↓
-Data Transformation
-     ↓
-Statistical Analysis
-     ↓
-Visualization
-     ↓
-Urban Insights
-     ↓
-Streamlit Dashboard
-```
-
----
-
-##  SDG Alignment
-
-### Primary SDG
-
-### **SDG 11 – Sustainable Cities and Communities**
-
-The project supports data-driven understanding of urban conditions and resource usage, contributing to better planning and sustainable city management.
-
-### Supporting SDGs
-
-**SDG 3 – Good Health and Well-being**
-
-Air-quality monitoring can help identify environmental conditions relevant to public health.
-
-**SDG 6 – Clean Water and Sanitation**
-
-Water consumption and quality analysis supports better understanding of urban water resources.
-
-**SDG 7 – Affordable and Clean Energy**
-
-Energy consumption and renewable-energy analysis can highlight patterns in urban energy use.
-
-**SDG 12 – Responsible Consumption and Production**
-
-Water and energy consumption analysis encourages awareness of resource utilization.
-
-**SDG 13 – Climate Action**
-
-Air-quality and energy data can provide insights into environmental and climate-related trends.
-
----
-
-##  Example Insights
-
-The dashboard should not only display graphs. It should help users understand **what the data means**.
-
-Examples:
-
-> **"City A recorded the highest average AQI during the selected period."**
-
-> **"Traffic volume reaches its highest level between 8 AM and 10 AM."**
-
-> **"City B has higher per-capita water consumption than the other monitored cities."**
-
-> **"Renewable energy accounts for 41% of the recorded energy consumption in City C."**
-
-These insights are generated from the underlying datasets and analysis rather than being manually written into the dashboard.
-
----
-
-##  Installation
+Requires **Python 3.10 or newer**.
 
 ### 1. Clone the repository
 
 ```bash
 git clone <repository-url>
-cd smart-city-dashboard
+cd <repository-folder>
 ```
 
 ### 2. Create a virtual environment
@@ -313,7 +182,7 @@ cd smart-city-dashboard
 python -m venv venv
 ```
 
-### 3. Activate the virtual environment
+### 3. Activate it
 
 **Windows:**
 
@@ -321,7 +190,7 @@ python -m venv venv
 venv\Scripts\activate
 ```
 
-**Linux/macOS:**
+**Linux / macOS:**
 
 ```bash
 source venv/bin/activate
@@ -339,44 +208,48 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-The dashboard will open in your browser.
+The dashboard opens in your browser (usually at `http://localhost:8501`).
 
 ---
 
-##  Requirements
+## Requirements
 
-The project's `requirements.txt` currently includes:
+`requirements.txt` lists every dependency:
 
 ```text
-numpy
-pandas
-streamlit
+streamlit>=1.32
+pandas>=2.0
+numpy>=1.24
+plotly>=5.18
 ```
 
-Additional libraries may be added if required by the final implementation.
+---
+
+## Python concepts demonstrated
+
+Variables and data types, conditionals, loops, functions, lists and dictionaries, modules and packages, classes (inheritance and encapsulation), exception handling (`try / except / else / finally`), file handling, CSV processing, virtual environments, NumPy arrays and calculations, Pandas DataFrames, filtering, grouping and aggregation, data cleaning, statistical analysis and Streamlit components.
 
 ---
 
-##  Future Improvements
+## SDG alignment
 
-Possible future extensions include:
-
-* Additional city datasets
-* Interactive geographical maps
-* Real-time data integration
-* Automated report generation
-* Advanced statistical analysis
-* Additional urban indicators
-* City-to-city comparison
-* Historical trend analysis
+| SDG | Link to the project |
+| --- | --- |
+| **SDG 11 - Sustainable Cities and Communities** (primary) | Combines traffic, air, water and energy data to support evidence-based urban planning |
+| SDG 3 - Good Health and Well-being | Air-quality monitoring (AQI, PM2.5, PM10) highlights conditions relevant to public health |
+| SDG 6 - Clean Water and Sanitation | Per-capita consumption, supply-demand gap and quality indicators |
+| SDG 7 - Affordable and Clean Energy | Renewable share and peak demand analysis |
+| SDG 12 / SDG 13 - Responsible Consumption, Climate Action | Awareness of resource consumption; air and energy trends relevant to climate action |
 
 ---
 
-##  Academic Context
+## Screenshots and demo video
 
-**Course:** Introduction to Python
-**Program:** CSE – Artificial Intelligence
-**Semester:** S3
-**Institution:** Amrita Vishwa Vidyapeetham
+- Demo video (10-15 min, each member demonstrates their own CRUD and visualization): `<add link>`
+- Screenshots: `<add images or links>`
 
-This project focuses on applying Python programming, numerical computing, data manipulation, and visualization techniques to a practical urban analytics problem.
+---
+
+## Future improvements
+
+Interactive maps of city indicators, additional cities, real-time data feeds, automated PDF report generation, advanced statistical analysis and historical trend forecasting.
