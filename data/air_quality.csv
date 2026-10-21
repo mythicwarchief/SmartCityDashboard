@@ -1463,3 +1463,4 @@ record_id,date,city,aqi,pm25,pm10,no2,so2,co,aqi_category
 1462,2024-12-31,Trivandrum,41,22.1,40.7,25.5,7.2,0.63,Good
 1463,2024-12-31,Kozhikode,103,50.7,103.8,30.9,8.1,0.73,Moderate
 1464,2024-12-31,Thrissur,82,48.9,82.4,21.8,8.3,1.01,Satisfactory
+1465,2026-10-21,Kochi,50,25.0,45.0,20.0,8.0,0.8,Good

@@ -1,13 +1,10 @@
-"""Page 1 - Air Quality (owner: Vaishnav Sunil Nair).
 
-Reads/writes ONLY data/air_quality.csv through AirQualityManager.
-Tabs: View Data | Add Record | Edit Record | Delete Record | Charts and Insights | Report
-"""
+"""Air Quality dashboard — Smart City Dashboard."""
 import sys
 from datetime import date, datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent  # project root (relative, no hardcoded paths)
+ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -16,15 +13,28 @@ import plotly.express as px
 import streamlit as st
 
 from modules.air_quality import CATEGORIES, CITIES, AirQualityManager
+from utils.ui import apply_page_style, render_page_header
 
 DATA_FILE = ROOT / "data" / "air_quality.csv"
 
-st.set_page_config(page_title="Air Quality | Smart City Dashboard", page_icon="🌫️", layout="wide")
+st.set_page_config(
+    page_title="Air Quality | Smart City Dashboard",
+    page_icon="🌫️",
+    layout="wide",
+)
+
+apply_page_style()
+render_page_header(
+    "Air Quality Intelligence",
+    "Monitor AQI and pollutant levels across Kochi, Trivandrum, Kozhikode and Thrissur.",
+    "🌫️",
+    "#0F9D8A",
+)
 
 
-# ------------------------------------------------------------------ helpers
+# ------------------------------- Helpers -------------------------------
 def flash(level: str, message: str) -> None:
-    """Keep a message across st.rerun() so the user sees the result of an action."""
+    """Preserve an action message across a Streamlit rerun."""
     st.session_state["aq_flash"] = (level, message)
 
 
@@ -38,243 +48,575 @@ def num(value, default: float) -> float:
     return default if pd.isna(value) else float(value)
 
 
-# --------------------------------------------------------------- load fresh
-st.title("Air Quality")
-st.caption("Monitor AQI and pollutants (PM2.5, PM10, NO2, SO2, CO) for Kochi, Trivandrum, "
-           "Kozhikode and Thrissur. Data file: data/air_quality.csv")
+# ------------------------------- Load data -------------------------------
 show_flash()
 
 manager = AirQualityManager(DATA_FILE)
-loaded, load_msg = manager.load()  # fresh read on every run
+loaded, load_msg = manager.load()
 
 if manager.load_status == "missing":
     st.error(load_msg)
-    if st.button("Create an empty air_quality.csv with the correct headers"):
+    st.info("Place air_quality.csv inside the project's data folder.")
+    if st.button("Create empty air_quality.csv"):
         ok, msg = manager.create_empty_file()
         flash("success" if ok else "error", msg)
         st.rerun()
     st.stop()
+
 if not loaded:
     st.error(load_msg)
-    st.info("Fix or replace data/air_quality.csv and reload this page.")
+    st.info("Fix or replace data/air_quality.csv, then reload this page.")
     st.stop()
+
 if manager.load_status == "empty":
     st.warning(load_msg)
 
 all_data = manager.data
 
-# ------------------------------------------------------------ sidebar filters
-st.sidebar.header("Filters")
-sel_cities = st.sidebar.multiselect("City", CITIES, default=CITIES)
-if all_data["date"].notna().any():
-    d_min, d_max = all_data["date"].min().date(), all_data["date"].max().date()
-else:
-    d_min = d_max = date.today()
-picked = st.sidebar.date_input("Date range", (d_min, d_max))
-date_range = tuple(picked) if isinstance(picked, (tuple, list)) and len(picked) == 2 else None
-if date_range is None:
-    st.sidebar.info("Pick an end date to apply the date filter.")
+# ------------------------------- Sidebar filters -------------------------------
+with st.sidebar:
+    st.markdown("## 🌫️ Air Quality")
+    st.caption("Pollutant monitoring and AQI analysis")
+    st.divider()
+    st.subheader("Filters")
+
+    sel_cities = st.multiselect(
+        "City",
+        CITIES,
+        default=CITIES,
+        key="aq_filter_cities",
+    )
+
+    if all_data["date"].notna().any():
+        d_min = all_data["date"].min().date()
+        d_max = all_data["date"].max().date()
+    else:
+        d_min = d_max = date.today()
+
+    picked = st.date_input(
+        "Date range",
+        value=(d_min, d_max),
+        key="aq_filter_dates",
+    )
+
+    date_range = (
+        tuple(picked)
+        if isinstance(picked, (tuple, list)) and len(picked) == 2
+        else None
+    )
+
+    if date_range is None:
+        st.info("Select both a start date and an end date to apply the date filter.")
 
 filtered = manager.filter_data(sel_cities, date_range)
 
-st.info("**Missing data (NaN) handling:** rows with missing values are flagged and counted; "
-        "statistics and charts exclude NaN values (nothing is imputed).")
+st.info(
+    "**Data quality:** missing values are flagged and counted. "
+    "Statistics and charts exclude missing values where necessary; "
+    "missing values are not imputed."
+)
 
-# ------------------------------------------------------------ summary metrics
+# ------------------------------- KPI cards -------------------------------
 summary = manager.aqi_summary(filtered)
+missing_rows = manager.flagged_rows(filtered)
+
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Records (filtered / total)", f"{len(filtered)} / {len(all_data)}")
-c2.metric("Average AQI", f"{summary['mean']:.1f}" if summary else "n/a")
-c3.metric("Maximum AQI", f"{summary['max']:.0f}" if summary else "n/a")
-c4.metric("Rows with missing values", len(manager.flagged_rows(filtered)))
+c1.metric("Records", f"{len(filtered):,}", help="Records matching the current filters")
+c2.metric("Average AQI", f"{summary['mean']:.1f}" if summary else "N/A")
+c3.metric("Maximum AQI", f"{summary['max']:.0f}" if summary else "N/A")
+c4.metric("Rows with missing values", f"{len(missing_rows):,}")
 
+st.caption(
+    f"Showing data for {len(sel_cities)} selected cities · "
+    f"{len(filtered):,} of {len(all_data):,} total records"
+)
+
+# ------------------------------- Main tabs -------------------------------
 tab_view, tab_add, tab_edit, tab_del, tab_charts, tab_report = st.tabs(
-    ["View Data", "Add Record", "Edit Record", "Delete Record", "Charts and Insights", "Report"])
+    [
+        "📋 View Data",
+        "➕ Add Record",
+        "✏️ Edit Record",
+        "🗑️ Delete Record",
+        "📊 Charts & Insights",
+        "📄 Report",
+    ]
+)
 
-# ------------------------------------------------------------------ VIEW (Read)
+# =============================== VIEW DATA ===============================
 with tab_view:
+    st.subheader("Air quality records")
+    st.caption("Search, sort and inspect the readings selected by your filters.")
+
     s1, s2, s3 = st.columns([2, 1, 1])
-    search = s1.text_input("Search (any column)", placeholder="e.g. Kochi, 2024-07, Moderate")
-    sort_col = s2.selectbox("Sort by", manager.columns, index=1)
-    ascending = s3.radio("Order", ["Ascending", "Descending"], horizontal=True) == "Ascending"
+    search = s1.text_input(
+        "Search any column",
+        placeholder="e.g. Kochi, 2024-07, Moderate",
+        key="aq_search",
+    )
+    sort_col = s2.selectbox(
+        "Sort by",
+        manager.columns,
+        index=1,
+        key="aq_sort_col",
+    )
+    ascending = (
+        s3.radio(
+            "Sort order",
+            ["Ascending", "Descending"],
+            horizontal=True,
+            key="aq_sort_order",
+        )
+        == "Ascending"
+    )
 
     view_df = manager.filter_data(sel_cities, date_range, search)
     if sort_col in view_df.columns:
-        view_df = view_df.sort_values(sort_col, ascending=ascending, na_position="last")
-    st.write(f"Showing **{len(view_df)}** of {len(all_data)} records")
-    st.dataframe(view_df, hide_index=True)
+        view_df = view_df.sort_values(
+            sort_col,
+            ascending=ascending,
+            na_position="last",
+        )
 
+    st.write(f"Showing **{len(view_df):,}** of {len(all_data):,} records")
+
+    if view_df.empty:
+        st.info("No records match your current search and filters.")
+    else:
+        st.dataframe(
+            view_df,
+            hide_index=True,
+            use_container_width=True,
+        )
+
+    st.divider()
     st.subheader("Summary statistics")
-    left, mid, right = st.columns(3)
+
+    left, middle, right = st.columns(3)
+
     with left:
-        st.markdown("**Mean AQI by city** (group-by)")
-        st.dataframe(manager.avg_aqi_by_city(view_df).rename("Mean AQI"))
-    with mid:
-        st.markdown("**Maximum PM2.5**")
+        st.markdown("**Mean AQI by city**")
+        avg_city = manager.avg_aqi_by_city(view_df)
+        st.dataframe(
+            avg_city.rename("Mean AQI"),
+            use_container_width=True,
+        )
+
+    with middle:
+        st.markdown("**Maximum PM2.5 reading**")
         peak = manager.max_pm25(view_df)
         if peak:
-            st.write(f"{peak['value']} ug/m3 in {peak['city']} on {peak['date']}")
+            st.metric("Maximum PM2.5", f"{peak['value']} µg/m³")
+            st.caption(f"{peak['city']} · {peak['date']}")
         else:
-            st.write("No PM2.5 data.")
-        st.markdown("**AQI summary (NumPy)**")
+            st.info("No PM2.5 data is available.")
+
+        st.markdown("**AQI statistical summary**")
         stats = manager.aqi_summary(view_df)
-        st.write(", ".join(f"{k}: {v:.1f}" for k, v in stats.items()) if stats else "No AQI data.")
+        if stats:
+            for key, value in stats.items():
+                st.write(f"**{key.title()}:** {value:.1f}")
+        else:
+            st.caption("No AQI statistics are available.")
+
     with right:
-        st.markdown("**Readings per AQI category**")
-        st.dataframe(manager.category_counts(view_df).rename("Readings"))
+        st.markdown("**Readings by AQI category**")
+        categories = manager.category_counts(view_df)
+        st.dataframe(
+            categories.rename("Readings"),
+            use_container_width=True,
+        )
 
     flagged = manager.flagged_rows(view_df)
-    with st.expander(f"Rows flagged for missing values ({len(flagged)})"):
+    with st.expander(f"Missing-data review · {len(flagged)} flagged rows"):
         if flagged.empty:
-            st.write("No missing values in the current view.")
+            st.success("No rows with missing values in this view.")
         else:
-            st.write("Missing cells per column:", manager.nan_counts(view_df).to_dict())
-            st.dataframe(flagged, hide_index=True)
+            st.warning("These records contain missing values. They have not been imputed.")
+            st.write("Missing cells by column:", manager.nan_counts(view_df).to_dict())
+            st.dataframe(flagged, use_container_width=True, hide_index=True)
 
-# ------------------------------------------------------------------ ADD (Create)
+
+# =============================== ADD RECORD ===============================
 with tab_add:
-    st.subheader("Add a new reading")
-    with st.form("add_form"):
-        a1, a2 = st.columns(2)
-        new_id = a1.number_input("Record ID", min_value=1, value=manager.next_id(), step=1)
-        new_date = a2.date_input("Date", value=date.today())
-        new_city = a1.selectbox("City", CITIES)
-        new_aqi = a2.number_input("AQI (0-500)", min_value=0, max_value=500, value=50, step=1)
-        new_pm25 = a1.number_input("PM2.5 (ug/m3)", min_value=0.0, max_value=1000.0, value=25.0, step=0.1)
-        new_pm10 = a2.number_input("PM10 (ug/m3)", min_value=0.0, max_value=1500.0, value=45.0, step=0.1)
-        new_no2 = a1.number_input("NO2 (ug/m3)", min_value=0.0, max_value=1000.0, value=20.0, step=0.1)
-        new_so2 = a2.number_input("SO2 (ug/m3)", min_value=0.0, max_value=1000.0, value=8.0, step=0.1)
-        new_co = a1.number_input("CO (mg/m3)", min_value=0.0, max_value=50.0, value=0.8, step=0.01)
+    st.subheader("Add an air quality reading")
+    st.caption("Enter a new record. The manager validates the values and calculates the AQI category.")
+
+    with st.form("aq_add_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+
+        new_id = col1.number_input(
+            "Record ID",
+            min_value=1,
+            value=int(manager.next_id()),
+            step=1,
+        )
+        new_date = col2.date_input("Date", value=date.today())
+        new_city = col1.selectbox("City", CITIES)
+        new_aqi = col2.number_input(
+            "AQI (0–500)",
+            min_value=0,
+            max_value=500,
+            value=50,
+            step=1,
+        )
+        new_pm25 = col1.number_input(
+            "PM2.5 (µg/m³)",
+            min_value=0.0,
+            max_value=1000.0,
+            value=25.0,
+            step=0.1,
+        )
+        new_pm10 = col2.number_input(
+            "PM10 (µg/m³)",
+            min_value=0.0,
+            max_value=1500.0,
+            value=45.0,
+            step=0.1,
+        )
+        new_no2 = col1.number_input(
+            "NO2 (µg/m³)",
+            min_value=0.0,
+            max_value=1000.0,
+            value=20.0,
+            step=0.1,
+        )
+        new_so2 = col2.number_input(
+            "SO2 (µg/m³)",
+            min_value=0.0,
+            max_value=1000.0,
+            value=8.0,
+            step=0.1,
+        )
+        new_co = col1.number_input(
+            "CO (mg/m³)",
+            min_value=0.0,
+            max_value=50.0,
+            value=0.8,
+            step=0.01,
+        )
+
         st.caption("The AQI category is calculated automatically from the AQI value.")
-        add_clicked = st.form_submit_button("Add record")
+        add_clicked = st.form_submit_button("Add reading", type="primary", use_container_width=True)
+
     if add_clicked:
-        ok, msg = manager.create({
-            "record_id": new_id, "date": new_date, "city": new_city, "aqi": new_aqi,
-            "pm25": new_pm25, "pm10": new_pm10, "no2": new_no2, "so2": new_so2, "co": new_co})
+        ok, msg = manager.create(
+            {
+                "record_id": new_id,
+                "date": new_date,
+                "city": new_city,
+                "aqi": new_aqi,
+                "pm25": new_pm25,
+                "pm10": new_pm10,
+                "no2": new_no2,
+                "so2": new_so2,
+                "co": new_co,
+            }
+        )
         if ok:
             flash("success", msg)
             st.rerun()
         else:
             st.error(msg)
 
-# ---------------------------------------------------------------- EDIT (Update)
+
+# =============================== EDIT RECORD ===============================
 with tab_edit:
     st.subheader("Edit an existing reading")
-    if all_data.empty:
-        st.info("There are no records to edit yet.")
+    st.caption("Choose a record ID, update its measurements and save your changes.")
+
+    valid_ids = all_data["record_id"].dropna() if not all_data.empty else pd.Series(dtype=float)
+
+    if valid_ids.empty:
+        st.info("There are no valid records to edit.")
     else:
-        edit_id = st.number_input("Record ID to edit", min_value=1, value=int(all_data["record_id"].dropna().min()),
-                                  step=1, key="edit_id")
+        edit_id = st.number_input(
+            "Record ID to edit",
+            min_value=1,
+            value=int(valid_ids.min()),
+            step=1,
+            key="aq_edit_id",
+        )
+
         record = manager.get_record(edit_id)
+
         if record is None:
-            st.error(f"Record not found: there is no record with ID {edit_id}.")
+            st.warning(f"No record was found with ID {edit_id}.")
         else:
-            k = f"edit_{edit_id}"
-            with st.form(f"edit_form_{edit_id}"):
-                st.write(f"Editing record **{edit_id}** (the ID cannot be changed)")
+            with st.form(f"aq_edit_form_{edit_id}"):
+                st.info(f"Editing record **{edit_id}**. The record ID cannot be changed.")
+
                 e1, e2 = st.columns(2)
-                rec_date = record["date"].date() if pd.notna(record["date"]) else date.today()
-                e_date = e2.date_input("Date", value=rec_date, key=f"{k}_date")
-                e_city = e1.selectbox("City", CITIES, key=f"{k}_city",
-                                      index=CITIES.index(record["city"]) if record["city"] in CITIES else 0)
-                e_aqi = e2.number_input("AQI (0-500)", min_value=0, max_value=500,
-                                        value=int(num(record["aqi"], 50)), step=1, key=f"{k}_aqi")
-                e_pm25 = e1.number_input("PM2.5 (ug/m3)", min_value=0.0, max_value=1000.0,
-                                         value=num(record["pm25"], 25.0), step=0.1, key=f"{k}_pm25")
-                e_pm10 = e2.number_input("PM10 (ug/m3)", min_value=0.0, max_value=1500.0,
-                                         value=num(record["pm10"], 45.0), step=0.1, key=f"{k}_pm10")
-                e_no2 = e1.number_input("NO2 (ug/m3)", min_value=0.0, max_value=1000.0,
-                                        value=num(record["no2"], 20.0), step=0.1, key=f"{k}_no2")
-                e_so2 = e2.number_input("SO2 (ug/m3)", min_value=0.0, max_value=1000.0,
-                                        value=num(record["so2"], 8.0), step=0.1, key=f"{k}_so2")
-                e_co = e1.number_input("CO (mg/m3)", min_value=0.0, max_value=50.0,
-                                       value=num(record["co"], 0.8), step=0.01, key=f"{k}_co")
-                save_clicked = st.form_submit_button("Save changes")
+                rec_date = (
+                    record["date"].date()
+                    if pd.notna(record["date"])
+                    else date.today()
+                )
+
+                e_date = e1.date_input(
+                    "Date",
+                    value=rec_date,
+                    key=f"aq_edit_date_{edit_id}",
+                )
+                e_city = e2.selectbox(
+                    "City",
+                    CITIES,
+                    index=CITIES.index(record["city"])
+                    if record["city"] in CITIES else 0,
+                    key=f"aq_edit_city_{edit_id}",
+                )
+                e_aqi = e1.number_input(
+                    "AQI (0–500)",
+                    min_value=0,
+                    max_value=500,
+                    value=int(num(record["aqi"], 50)),
+                    step=1,
+                    key=f"aq_edit_aqi_{edit_id}",
+                )
+                e_pm25 = e2.number_input(
+                    "PM2.5 (µg/m³)",
+                    min_value=0.0,
+                    max_value=1000.0,
+                    value=num(record["pm25"], 25.0),
+                    step=0.1,
+                    key=f"aq_edit_pm25_{edit_id}",
+                )
+                e_pm10 = e1.number_input(
+                    "PM10 (µg/m³)",
+                    min_value=0.0,
+                    max_value=1500.0,
+                    value=num(record["pm10"], 45.0),
+                    step=0.1,
+                    key=f"aq_edit_pm10_{edit_id}",
+                )
+                e_no2 = e2.number_input(
+                    "NO2 (µg/m³)",
+                    min_value=0.0,
+                    max_value=1000.0,
+                    value=num(record["no2"], 20.0),
+                    step=0.1,
+                    key=f"aq_edit_no2_{edit_id}",
+                )
+                e_so2 = e1.number_input(
+                    "SO2 (µg/m³)",
+                    min_value=0.0,
+                    max_value=1000.0,
+                    value=num(record["so2"], 8.0),
+                    step=0.1,
+                    key=f"aq_edit_so2_{edit_id}",
+                )
+                e_co = e2.number_input(
+                    "CO (mg/m³)",
+                    min_value=0.0,
+                    max_value=50.0,
+                    value=num(record["co"], 0.8),
+                    step=0.01,
+                    key=f"aq_edit_co_{edit_id}",
+                )
+
+                save_clicked = st.form_submit_button(
+                    "Save changes",
+                    type="primary",
+                    use_container_width=True,
+                )
+
             if save_clicked:
-                ok, msg = manager.update(edit_id, {
-                    "date": e_date, "city": e_city, "aqi": e_aqi, "pm25": e_pm25,
-                    "pm10": e_pm10, "no2": e_no2, "so2": e_so2, "co": e_co})
+                ok, msg = manager.update(
+                    edit_id,
+                    {
+                        "date": e_date,
+                        "city": e_city,
+                        "aqi": e_aqi,
+                        "pm25": e_pm25,
+                        "pm10": e_pm10,
+                        "no2": e_no2,
+                        "so2": e_so2,
+                        "co": e_co,
+                    },
+                )
                 if ok:
                     flash("success", msg)
                     st.rerun()
                 else:
                     st.error(msg)
 
-# -------------------------------------------------------------- DELETE (Delete)
+
+# =============================== DELETE RECORD ===============================
 with tab_del:
     st.subheader("Delete a reading")
-    if all_data.empty:
-        st.info("There are no records to delete yet.")
+    st.caption("Review the selected record before confirming deletion.")
+
+    valid_ids = all_data["record_id"].dropna() if not all_data.empty else pd.Series(dtype=float)
+
+    if valid_ids.empty:
+        st.info("There are no valid records to delete.")
     else:
-        del_id = st.number_input("Record ID to delete", min_value=1,
-                                 value=int(all_data["record_id"].dropna().min()), step=1, key="del_id")
+        del_id = st.number_input(
+            "Record ID to delete",
+            min_value=1,
+            value=int(valid_ids.min()),
+            step=1,
+            key="aq_delete_id",
+        )
         record = manager.get_record(del_id)
+
         if record is None:
-            st.error(f"Record not found: there is no record with ID {del_id}.")
+            st.warning(f"No record was found with ID {del_id}.")
         else:
-            st.dataframe(pd.DataFrame([record]), hide_index=True)
+            st.dataframe(
+                pd.DataFrame([record]),
+                hide_index=True,
+                use_container_width=True,
+            )
+
             if st.session_state.get("aq_pending_delete") != del_id:
-                if st.button("Delete this record"):
+                if st.button("Continue to delete", key="aq_start_delete"):
                     st.session_state["aq_pending_delete"] = del_id
                     st.rerun()
             else:
-                st.warning(f"Are you sure you want to permanently delete record {del_id}? This cannot be undone.")
+                st.warning(
+                    f"Are you sure you want to permanently delete record {del_id}? "
+                    "This action cannot be undone."
+                )
                 b1, b2, _ = st.columns([1, 1, 4])
-                if b1.button("Yes, delete", type="primary"):
+
+                if b1.button("Yes, delete", type="primary", key="aq_confirm_delete"):
                     ok, msg = manager.delete(del_id)
                     st.session_state.pop("aq_pending_delete", None)
                     flash("success" if ok else "error", msg)
                     st.rerun()
-                if b2.button("Cancel"):
+
+                if b2.button("Cancel", key="aq_cancel_delete"):
                     st.session_state.pop("aq_pending_delete", None)
                     st.rerun()
 
-# ------------------------------------------------------- CHARTS AND INSIGHTS
+
+# =============================== CHARTS & INSIGHTS ===============================
 with tab_charts:
-    st.subheader("Charts and insights")
-    st.caption("Charts are rebuilt from the current CSV and the sidebar filters. NaN values are excluded.")
+    st.subheader("Air quality analytics")
+    st.caption("Visualizations update according to the selected cities and date range.")
+
     chart_df = filtered.dropna(subset=["aqi"])
+
     if chart_df.empty:
-        st.info("No AQI data for the current filters.")
+        st.info("No AQI data is available for the current filters.")
     else:
         monthly = manager.monthly_aqi(chart_df)
-        st.plotly_chart(px.line(monthly, x="month", y="aqi", color="city", markers=True,
-                                title="Monthly average AQI by city",
-                                labels={"month": "Month", "aqi": "Average AQI", "city": "City"}))
+
+        if not monthly.empty:
+            fig_monthly = px.line(
+                monthly,
+                x="month",
+                y="aqi",
+                color="city",
+                markers=True,
+                title="Monthly average AQI by city",
+                labels={
+                    "month": "Month",
+                    "aqi": "Average AQI",
+                    "city": "City",
+                },
+            )
+            fig_monthly.update_layout(legend_title_text="")
+            st.plotly_chart(fig_monthly, use_container_width=True)
+
         ch1, ch2 = st.columns(2)
+
         by_city = manager.avg_aqi_by_city(chart_df).reset_index()
         by_city.columns = ["city", "avg_aqi"]
-        ch1.plotly_chart(px.bar(by_city, x="city", y="avg_aqi", color="city", text="avg_aqi",
-                                title="Average AQI by city",
-                                labels={"city": "City", "avg_aqi": "Average AQI"}))
+
+        with ch1:
+            fig_city = px.bar(
+                by_city,
+                x="city",
+                y="avg_aqi",
+                color="city",
+                text="avg_aqi",
+                title="Average AQI by city",
+                labels={"city": "City", "avg_aqi": "Average AQI"},
+            )
+            fig_city.update_layout(showlegend=False)
+            st.plotly_chart(fig_city, use_container_width=True)
+
         cats = manager.category_counts(chart_df).reset_index()
         cats.columns = ["category", "readings"]
         cats = cats[cats["readings"] > 0]
-        ch2.plotly_chart(px.pie(cats, names="category", values="readings", title="AQI category share",
-                                category_orders={"category": CATEGORIES}))
+
+        with ch2:
+            if not cats.empty:
+                fig_categories = px.pie(
+                    cats,
+                    names="category",
+                    values="readings",
+                    title="AQI category distribution",
+                    category_orders={"category": CATEGORIES},
+                    hole=0.42,
+                )
+                fig_categories.update_layout(legend_title_text="")
+                st.plotly_chart(fig_categories, use_container_width=True)
+            else:
+                st.info("No AQI categories are available.")
+
         pm = chart_df.dropna(subset=["pm25"])
         if not pm.empty:
-            st.plotly_chart(px.histogram(pm, x="pm25", color="city", nbins=40, barmode="overlay",
-                                         opacity=0.7, title="PM2.5 distribution",
-                                         labels={"pm25": "PM2.5 (ug/m3)"}))
-    st.subheader("Generated insights")
-    for text in manager.generate_insights(filtered):
-        st.write(f"• {text}")
+            fig_pm = px.histogram(
+                pm,
+                x="pm25",
+                color="city",
+                nbins=40,
+                barmode="overlay",
+                opacity=0.7,
+                title="PM2.5 distribution by city",
+                labels={"pm25": "PM2.5 (µg/m³)", "city": "City"},
+            )
+            st.plotly_chart(fig_pm, use_container_width=True)
 
-# ------------------------------------------------------------------- REPORT
+    st.divider()
+    st.subheader("Generated insights")
+    for insight in manager.generate_insights(filtered):
+        st.markdown(f"- {insight}")
+
+
+# =============================== REPORT ===============================
 with tab_report:
-    st.subheader("Export summary report")
+    st.subheader("Export air quality report")
+    st.caption("Download a summary of the current selection or export the filtered records.")
+
     filters_used = {
-        "Cities": ", ".join(sel_cities) if sel_cities else "none selected",
-        "Date range": f"{date_range[0]} to {date_range[1]}" if date_range else "not applied",
-        "Search term": search if search else "none",
+        "Cities": ", ".join(sel_cities) if sel_cities else "None selected",
+        "Date range": (
+            f"{date_range[0]} to {date_range[1]}"
+            if date_range else "Not applied"
+        ),
+        "Search term": search if search else "None",
     }
+
     report_df = manager.filter_data(sel_cities, date_range, search)
-    report_text = manager.build_report(report_df, filters_used, total_rows=len(all_data))
-    st.text_area("Report preview", report_text, height=380)
+    report_text = manager.build_report(
+        report_df,
+        filters_used,
+        total_rows=len(all_data),
+    )
+
+    st.text_area("Report preview", report_text, height=300)
+
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     d1, d2 = st.columns(2)
-    d1.download_button("Download report (.txt)", report_text, file_name=f"air_quality_report_{stamp}.txt",
-                       mime="text/plain")
-    d2.download_button("Download filtered data (.csv)", report_df.to_csv(index=False),
-                       file_name=f"air_quality_filtered_{stamp}.csv", mime="text/csv")
+
+    d1.download_button(
+        "Download report (.txt)",
+        report_text,
+        file_name=f"air_quality_report_{stamp}.txt",
+        mime="text/plain",
+        use_container_width=True,
+    )
+
+    d2.download_button(
+        "Download filtered data (.csv)",
+        report_df.to_csv(index=False),
+        file_name=f"air_quality_filtered_{stamp}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+st.caption("Smart City Dashboard · Air Quality module")
